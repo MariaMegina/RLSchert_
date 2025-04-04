@@ -18,10 +18,11 @@ class Dist:
     def bi_model_dist(self):
         idx = np.random.randint(0,self.all_data_size)
         nw_len = int(self.data[idx, 1])
-        nw_len_para = min(int(self.data[idx, 2]), 100)
+        nw_len_para = nw_len # min(int(self.data[idx, 2]), 100)
         nw_len_running = np.zeros(self.job_len).astype(np.int32)
-        nw_len_running[:self.data[idx, 3].shape[0]] = self.data[idx, 3].astype(np.int32)
-        nw_len_running[self.data[idx, 3].shape[0]:] = self.data[idx, 3].astype(np.int32)[-1]
+        # nw_len_running[:self.data[idx, 3].shape[0]] = self.data[idx, 3].astype(np.int32)
+        # nw_len_running[self.data[idx, 3].shape[0]:] = self.data[idx, 3].astype(np.int32)[-1]
+        nw_len_running[:] = nw_len 
         nw_len_running = np.clip(nw_len_running, 0, 105)
         nw_size = np.zeros(self.num_res)
 
