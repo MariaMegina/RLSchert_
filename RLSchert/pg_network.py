@@ -97,7 +97,6 @@ class PGLearner:
         act_prob, value, teacher_prob = self.get_one_act_prob(state)
         act = np.random.choice(np.arange(act_prob.shape[0]), 1, p=act_prob)
         teacher = np.random.choice(np.arange(teacher_prob.shape[0]), 1, p=teacher_prob)
-        # print(act_prob, act)
 
         return act[0], value, teacher[0]
 
@@ -142,9 +141,11 @@ class PGLearner:
     def get_one_act_prob(self, state):
         states = np.zeros((1, 1, self.input_height, self.input_width))
         states[0, :, :] = state
+        print(state[1][0])
         act_prob, value, teacher_prob = self._get_act_prob(states)
 
         return act_prob[0].reshape(-1), value[0,0], teacher_prob[0].reshape(-1)
+
 
     def get_act_probs(self, states):  # multiple states, assuming in floatX format
         act_probs, values, teacher_prob = self._get_act_prob(states)

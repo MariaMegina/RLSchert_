@@ -13,9 +13,8 @@ class Env:
         self.render = render
         self.repre = repre  # image or compact representation
         self.end = end  # termination type, 'no_new_job' or 'all_done'
-
         self.nw_dist = pa.dist.bi_model_dist
-
+        self.up = []
         self.curr_time = 0
         self.pred_err = pa.pred_err
         self.small_err = pa.small_err
@@ -74,6 +73,8 @@ class Env:
             if np.random.rand() < self.pa.new_job_rate:  # a new job comes
 
                 nw_len_seq[i], nw_len_para_seq[i], nw_len_running_seq[i], nw_size_seq[i, :] = self.nw_dist()
+
+        # print("nw_len: ", nw_len_seq, "nw_len_para: ", nw_len_para_seq, "nw_len_running: ", nw_len_running_seq, "nw_size: ", nw_size_seq)
 
         return nw_len_seq, nw_len_para_seq, nw_len_running_seq, nw_size_seq
 
@@ -183,31 +184,56 @@ class Env:
 
         plt.imshow(extra_info, interpolation='nearest', vmax=1)
 
-        #plt.show()     # manual
+        # plt.show()     # manual
         plt.pause(0.01)  # automatic
 
     def get_reward(self):
 
         reward = 0
         for j in self.machine.running_job:
-            reward += self.pa.delay_penalty / float(j.len_hat_runtime[max(self.curr_time-j.start_time, 0)])
+            reward += self.pa.delay_penalty / math.log(float(j.len_hat_runtime[max(self.curr_time-j.start_time, 0)]) + 1) 
 
         for j in self.machine.ready_job:
-            reward += self.pa.delay_penalty / float(j.len_hat)
+            reward += self.pa.delay_penalty / math.log(float(j.len_hat) + 1)
 
         for j in self.job_slot.slot:
             if j is not None:
-                reward += self.pa.hold_penalty / float(j.len_hat)
-
+                reward += self.pa.hold_penalty / math.log(float(j.len_hat) + 1)  
+                
         for j in self.job_backlog.backlog:
             if j is not None:
-                reward += self.pa.dismiss_penalty / float(j.len_hat)
+                reward += self.pa.dismiss_penalty / math.log(float(j.len_hat) + 1) 
 
         return reward
 
+
+    def get_used_processors(self):
+        used = ""
+        job_symbols = {}  # Словарь для хранения соответствия ID задачи и символа
+    
+        for slot in range(self.pa.res_slot):
+            if self.machine.canvas[0, 0, slot] != 0:
+                color = self.machine.canvas[0, 0, slot]
+                # Находим задачу по цвету
+                job = next((j for j in self.machine.running_job if j.color == color), None)
+                if job:
+                    if job.id not in job_symbols:
+                        # Генерируем символ на основе ID (например, буквы A-Z)
+                        symbol = chr(ord('0') + (job.id % 74))
+                        if (symbol == '\\'):
+                            symbol = '!'
+                        elif (symbol == '-'):
+                            symbol = '#'
+                        job_symbols[job.id] = symbol
+                    used += job_symbols[job.id]
+                else:
+                    used += 'x'  # Символ по умолчанию, если задача не найдена
+            else:
+                used += '-'
+        return used
+
     def step(self, a, repeat=False):
         status = None
-
         done = False
         reward = 0
         info = None
@@ -217,37 +243,69 @@ class Env:
                 status = 'MoveOn'
             else:
                 djob = self.machine.already_run_job[del_action]
-                used_time = self.curr_time-djob.start_time
-                #print('kill:'+str(djob.id)+' '+str(djob.len_hat_runtime[used_time])+' '+str(djob.len_hat)+' '+str(djob.len)+' '+str(used_time))
-                self.machine.running_job.remove(djob)
-                self.machine.already_run_job[del_action] = None
-                del self.machine.already_id[djob.id]
-                djob.start_time = -1
-                djob.finish_time = -1
-                djob.finish_time_hat = -1
-                djob.len_hat = djob.len_hat_runtime[used_time]
-                self.machine.free_res(djob)
-                djob.color = -1
-                self.job_record.record[djob.id] = djob
-                place = False
-                for ji in range(len(self.job_slot.slot)):
-                    if self.job_slot.slot[ji] == None:
-                        self.job_slot.slot[ji] = djob
-                        place = True
+                useful_to_kill = False
+                for js in self.job_slot.slot:
+                    if js is None:
+                        continue
+
+                    # 1. Проверка: хватает ли ресурсов без удаления?
+                    fits_without_kill = False
+                    for t in range(0, self.pa.time_horizon - js.len_hat):
+                        new_avbl = self.machine.avbl_slot[t:t+js.len_hat, :] - js.res_vec
+                        if np.all(new_avbl >= 0):
+                            fits_without_kill = True
+                            break
+
+                    # 2. Проверка: хватает ли ресурсов, если djob будет удалена?
+                    temp_avbl = self.machine.avbl_slot.copy()
+                    temp_avbl += djob.res_vec  # освобождаем ресурсы, которые освободятся
+                    fits_with_kill = False
+                    for t in range(0, self.pa.time_horizon - js.len_hat):
+                        new_avbl = temp_avbl[t:t+js.len_hat, :] - js.res_vec
+                        if np.all(new_avbl >= 0):
+                            fits_with_kill = True
+                            break
+
+                    # 3. Разрешить удаление только если без него задача не проходит, а с ним — проходит
+                    if not fits_without_kill and fits_with_kill:
+                        useful_to_kill = True
                         break
-                if place == False:
-                    self.job_slot.slot.insert(0, djob)
-                self.job_record.record[djob.id] = djob
-                copy_list = self.machine.running_job.copy()
-                for rj in copy_list:
-                    if rj not in self.machine.running_job: continue
-                    if rj.start_time>=self.curr_time:
-                        self.machine.running_job.remove(rj)
-                        self.machine.ready_job.append(rj)
-                        self.machine.free_res(rj)
-                
-                status = 'DELETE'
-                #reward = -(used_time/djob.len_hat_runtime[used_time])
+
+                if not useful_to_kill:
+                    status = 'MoveOn'  # не удаляем — нет смысла
+                else:
+                    used_time = self.curr_time-djob.start_time
+                    # print('kill:'+str(djob.id)+' '+str(djob.len_hat_runtime[used_time])+' '+str(djob.len_hat)+' '+str(djob.len)+' '+str(used_time))
+                    self.machine.running_job.remove(djob)
+                    self.machine.already_run_job[del_action] = None
+                    del self.machine.already_id[djob.id]
+                    djob.start_time = -1
+                    djob.finish_time = -1
+                    djob.finish_time_hat = -1
+                    djob.len_hat = djob.len_hat_runtime[used_time]
+                    self.machine.free_res(djob)
+                    djob.color = -1
+                    self.job_record.record[djob.id] = djob
+                    place = False
+                    for ji in range(len(self.job_slot.slot)):
+                        if self.job_slot.slot[ji] == None:
+                            self.job_slot.slot[ji] = djob
+                            place = True
+                            break
+                    if place == False:
+                        self.job_slot.slot.insert(0, djob)
+                    self.job_record.record[djob.id] = djob
+                    copy_list = self.machine.running_job.copy()
+                    for rj in copy_list:
+                        if rj not in self.machine.running_job: continue
+                        if rj.start_time>=self.curr_time:
+                            self.machine.running_job.remove(rj)
+                            self.machine.ready_job.append(rj)
+                            self.machine.free_res(rj)
+                                
+                        
+                    status = 'DELETE'
+                # reward = -(used_time/djob.len_hat_runtime[used_time])
         elif len(self.machine.ready_job) > 0:
             status = 'MoveOn'
         elif a == self.pa.num_nw:  # explicit void action
@@ -263,6 +321,9 @@ class Env:
 
         if status == 'MoveOn':
             self.curr_time += 1
+            self.up.append((self.curr_time, self.get_used_processors()))
+            #with open('used_processors.txt', 'w') as f:
+            #    print(self.curr_time, self.get_used_processors(), file=f)
             self.machine.time_proceed(self.curr_time)
             #ready job insert
             self.machine.ready_job.sort(key=lambda x:x.start_time)
@@ -296,7 +357,7 @@ class Env:
 
                 if self.seq_idx < self.pa.simu_len:  # otherwise, end of new job sequence, i.e. no new jobs
                     new_job = self.get_new_job_from_seq(self.seq_no, self.seq_idx)
-
+                    
                     if new_job.len > 0:  # a new job comes
 
                         to_backlog = True
@@ -333,6 +394,7 @@ class Env:
                 self.job_backlog.backlog[-1] = None
                 self.job_backlog.curr_size -= 1
 
+        
         arange_slot = []
         all_size = len(self.job_slot.slot)
         for i in range(all_size):
@@ -349,9 +411,13 @@ class Env:
 
         info = self.job_record
 
+
         if done:
             self.seq_idx = 0
-
+            with open('used_processors.txt', 'w') as f:
+                for i in self.up:
+                    print(i, file=f)
+            self.up = []
             if not repeat:
                 self.seq_no = (self.seq_no + 1) % self.pa.num_ex
 
@@ -411,6 +477,7 @@ class Machine:
         self.res_slot = pa.res_slot
 
         self.avbl_slot = np.ones((self.time_horizon, self.num_res)) * self.res_slot
+        
 
         self.running_job = []
         self.ready_job = []
@@ -477,6 +544,7 @@ class Machine:
                         avbl_slot = np.where(self.canvas[res, i, :] == 0)[0]
                         self.canvas[res, i, avbl_slot[: job.res_vec[res]]] = new_color
                 break
+
         return allocated
 
     def free_res(self, job):
@@ -533,6 +601,7 @@ class Machine:
                             avbl_slot = np.where(self.canvas[res, t, :] == 0)[0]
                             self.canvas[res, t, avbl_slot[: job.res_vec[res]]] = job.color
                     job.finish_time_hat = round(job.start_time + job.len_hat_runtime[used_time])
+            
 
     def time_proceed(self, curr_time):
         self.avbl_slot[:-1, :] = self.avbl_slot[1:, :]
@@ -575,7 +644,7 @@ class Machine:
                         avbl_slot = np.where(self.canvas[res, t, :] == 0)[0]
                         self.canvas[res, t, avbl_slot[: job.res_vec[res]]] = job.color
                 job.finish_time_hat += 1
-        self.runtime_estimate(curr_time)
+        # self.runtime_estimate(curr_time)
         for job in self.running_job:
             if job.start_time<curr_time and job.id not in self.already_id:
                 for i in range(self.max_run_job):

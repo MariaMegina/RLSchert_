@@ -100,6 +100,7 @@ def get_traj(agent, env, episode_max_length):
             running_jobs[i,1] = int(running_jobs[i,1]*100)
             running_jobs[i,3] = int(running_jobs[i,3]*100)
             if running_jobs[i,1]<=running_jobs[i,0] and abs(running_jobs[i,3]-running_jobs[i,0])/running_jobs[i,0]>1.0 and running_jobs[i,3]>10 and running_jobs[i,0]<10:
+                print("вот кто убивает черт")
                 teacher_acts.append(i+env.pa.num_nw+1)
                 kill_flag = True
                 break
@@ -113,6 +114,11 @@ def get_traj(agent, env, episode_max_length):
 
         if done: 
             break
+
+    # В функции get_traj() после завершения эпизода:
+    episode_length = len(rews)  # Количество шагов в эпизоде
+    with open("episode_lengths.txt", "a") as f:
+        f.write(f"{episode_length}\n")
 
     if done == False:
         rews[-1] = -10.0
@@ -167,6 +173,7 @@ def concatenate_all_ob_across_examples(all_ob, pa):
 
 def process_all_info(trajs):
     enter_time = []
+    start_time = []
     finish_time = []
     job_len = []
 
@@ -174,11 +181,15 @@ def process_all_info(trajs):
         enter_time.append(np.array([traj['info'].record[i].enter_time for i in range(len(traj['info'].record))]))
         finish_time.append(np.array([traj['info'].record[i].finish_time for i in range(len(traj['info'].record))]))
         job_len.append(np.array([traj['info'].record[i].len for i in range(len(traj['info'].record))]))
+        start_time.append(np.array([traj['info'].record[i].start_time for i in range(len(traj['info'].record))]))
+
 
     enter_time = np.concatenate(enter_time)
+    start_time = np.concatenate(start_time)
     finish_time = np.concatenate(finish_time)
     job_len = np.concatenate(job_len)
-
+    # for i in range(len(enter_time)):
+    #     print(enter_time[i], start_time[i], finish_time[i], job_len[i])
     return enter_time, finish_time, job_len
 
 
@@ -214,6 +225,7 @@ def plot_lr_curve(output_file_prefix, max_rew_lr_curve, mean_rew_lr_curve, slow_
         ax.plot(np.tile(np.average(np.concatenate(ref_slow_down[k])), len(slow_down_lr_curve)), linewidth=2, label=k)
 
     plt.legend(loc=1)
+    plt.yticks(np.arange(0, 19, 2))
     plt.xlabel("Iteration", fontsize=20)
     plt.ylabel("Slowdown", fontsize=20)
 
@@ -247,8 +259,13 @@ def get_traj_worker(pg_learner, env, pa, result):
 
     # All Job Stat
     enter_time, finish_time, job_len = process_all_info(trajs)
+    f = open('output.txt', 'w')
+    for i in range(len(enter_time)):
+        f.write("{} {} {}\n".format(enter_time[i], job_len[i], finish_time[i]))
+    f.close()
     finished_idx = (finish_time >= 0)
     all_slowdown = (finish_time[finished_idx] - enter_time[finished_idx]) / job_len[finished_idx]
+    # print(finish_time[finished_idx], enter_time[finished_idx], job_len[finished_idx])
 
     all_entropy = np.concatenate([traj["entropy"] for traj in trajs])
     all_old_log_pis = np.concatenate([traj["old_log_pis"] for traj in trajs])
@@ -265,7 +282,7 @@ def get_traj_worker(pg_learner, env, pa, result):
                    "all_entropy": all_entropy})
 
 
-def launch(pa, pg_resume=None, pg_teacher=None, render=False, repre='image', end='no_new_job'):
+def launch(pa, pg_resume=None, pg_teacher=None, render=False, repre='image', end='all_done'):#'no_new_job'):
     cuda = pa.cuda
     # ----------------------------
     print("Preparing for workers...")
@@ -384,6 +401,7 @@ def launch(pa, pg_resume=None, pg_teacher=None, render=False, repre='image', end
                 #all_adv = (all_adv-np.mean(all_adv))/(np.std(all_adv)+pa.SMALL_NUM)
                 print('adv mean:'+str(np.mean(all_adv)))
                 print('values mean:'+str(np.mean(all_values)))
+                
                 for i in range(pa.ppo_epochs):
                     indice = torch.randperm(all_size)
                     batch_num = math.ceil(all_size/pa.ppo_batch)
@@ -406,10 +424,11 @@ def launch(pa, pg_resume=None, pg_teacher=None, render=False, repre='image', end
 
                 eprews.extend(np.concatenate([r["all_eprews"] for r in result]))  # episode total rewards
                 eplens.extend(np.concatenate([r["all_eplens"] for r in result]))  # episode lengths
-
+                
                 all_slowdown.extend(np.concatenate([r["all_slowdown"] for r in result]))
                 all_entropy.extend(np.concatenate([r["all_entropy"] for r in result]))
 
+        
         params = pg_learners[pa.num_ex].l_out.state_dict()
         for i in range(pa.num_ex):
             pg_learners[i].l_out.load_state_dict(params)
