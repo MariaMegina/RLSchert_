@@ -141,7 +141,6 @@ class PGLearner:
     def get_one_act_prob(self, state):
         states = np.zeros((1, 1, self.input_height, self.input_width))
         states[0, :, :] = state
-        print(state[1][0])
         act_prob, value, teacher_prob = self._get_act_prob(states)
 
         return act_prob[0].reshape(-1), value[0,0], teacher_prob[0].reshape(-1)
