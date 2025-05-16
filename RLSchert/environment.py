@@ -301,9 +301,8 @@ class Env:
                         if rj.start_time>=self.curr_time:
                             self.machine.running_job.remove(rj)
                             self.machine.ready_job.append(rj)
-                            self.machine.free_res(rj)
-                                
-                        
+                            self.machine.free_res(rj)                
+                            
                     status = 'DELETE'
                 # reward = -(used_time/djob.len_hat_runtime[used_time])
         elif len(self.machine.ready_job) > 0:
@@ -413,6 +412,8 @@ class Env:
 
 
         if done:
+            with open("episode_lengths.txt", "a") as f:
+                f.write(f"{self.curr_time}\n")
             self.seq_idx = 0
             with open('used_processors.txt', 'w') as f:
                 for i in self.up:

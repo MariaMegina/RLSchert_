@@ -61,6 +61,7 @@ class PGLearner:
         self.input_width_t = pa.network_input_width_t
         self.output_height = pa.network_output_dim
         self.output_height_t = pa.network_output_dim_t
+        self.pa = pa
 
         self.num_frames = pa.num_frames
 
@@ -151,6 +152,7 @@ class PGLearner:
         return act_probs, values, teacher_prob
 
     def _get_act_prob(self, states):
+        states_p = states.copy()
         states_t = states.copy()
         states = Variable(torch.from_numpy(states.astype(np.float32)))
         states_t = Variable(torch.from_numpy(np.delete(states_t.astype(np.float32), -2, axis=-1)))
@@ -161,6 +163,17 @@ class PGLearner:
         act_probs = Fnn.softmax(act_probs, dim=-1).data.cpu().numpy()
         teacher_probs, _ = self.t_out(states_t)
         teacher_probs = Fnn.softmax(teacher_probs, dim=-1).data.cpu().numpy()
+        for i in range(5):
+            x = 20 + i*10
+            if (states_p[0,0,:, x][0]==0.0):
+                act_probs[0][i] = 0
+        for i in range(8):
+            x = i*15
+            if states_p[0,0,:,70][x] == 0:
+                act_probs[0][i+6] = 0
+
+        act_probs /= np.sum(act_probs)
+        #print(act_probs)
         return act_probs, values.data.cpu().numpy(), teacher_probs
 
     #  -------- Supervised Learning --------

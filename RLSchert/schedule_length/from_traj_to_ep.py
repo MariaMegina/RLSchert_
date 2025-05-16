@@ -1,5 +1,5 @@
-f1 = open("episode_lengths(sl_50_with_check_num_nw_10).txt", 'r')
-f2 = open("episode_lengths(sl_50_with_check_num_nw_10_episodes).txt", 'w')
+f1 = open("episode_lengths(sl_50_nullver).txt", 'r')
+f2 = open("episode_lengths(sl_50_nullver_episodes).txt", 'w')
 i = 0
 
 for l in f1:

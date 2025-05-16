@@ -78,7 +78,7 @@ def get_traj(agent, env, episode_max_length):
 
     ob = env.observe()
 
-    for _ in range(episode_max_length):
+    for length in range(episode_max_length):
         act_prob, v, teacher_prob = agent.get_one_act_prob(ob)
         act = np.random.choice(np.arange(act_prob.shape[0]), 1, p=act_prob)
         teacher = np.random.choice(np.arange(teacher_prob.shape[0]), 1, p=teacher_prob)
@@ -100,7 +100,6 @@ def get_traj(agent, env, episode_max_length):
             running_jobs[i,1] = int(running_jobs[i,1]*100)
             running_jobs[i,3] = int(running_jobs[i,3]*100)
             if running_jobs[i,1]<=running_jobs[i,0] and abs(running_jobs[i,3]-running_jobs[i,0])/running_jobs[i,0]>1.0 and running_jobs[i,3]>10 and running_jobs[i,0]<10:
-                print("вот кто убивает черт")
                 teacher_acts.append(i+env.pa.num_nw+1)
                 kill_flag = True
                 break
@@ -114,11 +113,6 @@ def get_traj(agent, env, episode_max_length):
 
         if done: 
             break
-
-    # В функции get_traj() после завершения эпизода:
-    episode_length = len(rews)  # Количество шагов в эпизоде
-    with open("episode_lengths.txt", "a") as f:
-        f.write(f"{episode_length}\n")
 
     if done == False:
         rews[-1] = -10.0
